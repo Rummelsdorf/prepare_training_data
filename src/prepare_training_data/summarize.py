@@ -73,6 +73,12 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
+def _clean_preserve_lines(value: Any) -> str:
+    """Collapse spaces but keep line breaks for heading detection."""
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(" ".join(line.split()) for line in text.split("\n"))
+
+
 def load_documents(
     jsonl_path: Path,
     manifest_path: Path | None = None,
@@ -117,7 +123,7 @@ def load_documents(
                 "source_type": source_type,
             },
         )
-        entry["pages"].append((int(record.get("page") or 0), _clean(record.get("text"))))
+        entry["pages"].append((int(record.get("page") or 0), _clean_preserve_lines(record.get("text"))))
         if not entry["title"] and record.get("title"):
             entry["title"] = _clean(record["title"])
         if not entry["author"] and record.get("author"):
@@ -140,16 +146,15 @@ def load_documents(
         if len(text.split()) < 40:
             continue
         title = entry["title"]
-        if title.startswith("Untitled") or not title:
-            title = Path(entry["source"]).stem.replace("_", " ")
-        if not title or title.lower() in {Path(entry["source"]).stem.lower()}:
-            title = title_by_path.get(str(Path(entry["source"]).resolve()), title)
+        stem = Path(entry["source"]).stem
+        if title.startswith("Untitled") or not title or title == stem:
+            title = _derive_title(text, title_by_path.get(str(Path(entry["source"]).resolve()), stem))
         documents.append(
             Document(
                 source=entry["source"],
                 title=title or "Ohne Titel",
                 author=entry["author"],
-                date=entry["date"],
+                date=_clean_date(entry["date"]),
                 url=entry["url"],
                 source_type=entry["source_type"],
                 text=text,
@@ -202,10 +207,37 @@ _STANCE_HINTS = (
 def _plain(text: str) -> str:
     text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"<sup[^>]*>.*?</sup>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"</?(?:u|em|strong|i|b|span)[^>]*>", "", text, flags=re.IGNORECASE)
     text = text.replace("**", "").replace("__", "").replace("*", "")
     text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*[-|]{3,}\s*$", "", text, flags=re.MULTILINE)
     return _clean(text)
+
+
+def _clean_date(value: str) -> str:
+    """Normalize PDF metadata dates like ``D:20240909132659+00'00'``."""
+    match = re.match(r"D?:?(\d{4})(\d{2})?(\d{2})?", value.strip())
+    if match:
+        year, month, day = match.groups()
+        if month and day:
+            return f"{year}-{month}-{day}"
+        return year
+    return value
+
+
+def _derive_title(text: str, fallback: str) -> str:
+    """Use the first informative line of a PDF as title when available."""
+    for raw in text.splitlines()[:20]:
+        line = _plain(raw)
+        line = re.sub(r"^[\d\W_]+", "", line)
+        if 15 <= len(line) <= 160 and len(line.split()) >= 3:
+            if line.lower() in {"abstract", "introduction", " executive summary"}:
+                continue
+            if line.count(".") > 6 or "http" in line.lower():
+                continue
+            return line
+    return fallback.replace("_", " ").replace("-", " ").strip()
 
 
 def _extractive(document: Document) -> dict[str, Any]:
