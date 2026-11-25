@@ -391,7 +391,9 @@ def summarize_documents(
 
     summarizer = OllamaSummarizer(config)
     use_llm = not config.extractive_only and summarizer.available()
-    if not use_llm:
+    if config.extractive_only:
+        print("Extraktive Zusammenfassungen (--extractive-only).", file=sys.stderr)
+    elif not use_llm:
         print("Ollama nicht erreichbar – extraktive Zusammenfassungen.", file=sys.stderr)
 
     for index, document in enumerate(documents, start=1):
