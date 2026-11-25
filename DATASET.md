@@ -71,6 +71,9 @@ source code. Regenerate them with the script above.
 
 ## Limitations and cautions
 
+- Summaries cover the substantive documents (PDF/DOC). The mirrored HTML pages
+  are mostly navigation, tag and archive pages; they can be included with
+  `ptd summarize --include-html` if desired.
 - Extractive summaries select source sentences; they can be long, in English,
   and may contain OCR/extraction artefacts. LLM summaries are higher quality
   but slow on CPU.
