@@ -61,6 +61,9 @@ Beispiel mit den mitgelieferten Testdaten:
 | `ptd dedup IN -o OUT` | Exakte und nahezu doppelte Texte entfernen |
 | `ptd split IN -o DIR` | Deterministisch in `train.jsonl` / `val.jsonl` teilen |
 | `ptd stats IN` | Längen, Sprachen, Quellen und Duplikate anzeigen |
+| `ptd mirror URL… -o DIR` | Website lokal spiegeln (HTML + PDF/DOC, inkl. sitemap.xml) |
+| `ptd summarize IN -o OUT` | Dokumente per Ollama zusammenfassen (quellen attribuierend) |
+| `ptd dataset EXTRACTED SUMMARIES -o OUT` | Instruction-Datensatz im Chat-Format bauen |
 
 Quellen dürfen Dateien, Verzeichnisse, Glob-Muster oder URLs sein:
 
@@ -160,6 +163,61 @@ Die Filter sind Heuristiken und ersetzen keine manuelle Prüfung – sie sollen
 offensichtlichen Müll (Navigation, Formeln, Wiederholungen, Leerseiten)
 aussortieren.
 
+## Website-Beispiel: Journal of 9/11 Studies
+
+Der komplette Weg von einer Website zu einem LLM-Datensatz (lokal, ohne
+Cloud-API). Das Beispiel spiegelt `journalof911studies.com`, fasst jedes
+Dokument zusammen und baut daraus einen Instruction-Datensatz:
+
+```bash
+mkdir -p data/journal911
+
+# 1. Lokale Kopie: HTML-Seiten + verlinkte PDFs/DOCs (robots.txt wird beachtet)
+.venv/bin/ptd mirror https://www.journalof911studies.com \
+  -o data/journal911/mirror --delay 0.15 --max-pages 500 --max-documents 400
+
+# 2. Text aus den PDFs extrahieren (eine JSONL-Zeile pro PDF-Seite)
+.venv/bin/ptd extract data/journal911/mirror -o data/journal911/extracted.jsonl \
+  --pdf-fast --quiet
+
+# 3. Zusammenfassungen mit einem lokalen Ollama-Modell erzeugen
+.venv/bin/ptd summarize data/journal911/extracted.jsonl \
+  -o data/journal911/summaries.jsonl \
+  --manifest data/journal911/mirror/manifest.jsonl \
+  --markdown data/journal911/SUMMARIES.md --lang de --limit 0
+
+# 4. Instruction-Datensatz (Chat-Format) + Volltext-Korpus bauen
+.venv/bin/ptd dataset data/journal911/extracted.jsonl \
+  data/journal911/summaries.jsonl -o data/journal911/instruct.jsonl \
+  --corpus data/journal911/corpus.jsonl
+
+# 5. Quellenweise aufteilen (kein Train/Val-Leakage)
+.venv/bin/ptd split data/journal911/instruct.jsonl \
+  -o data/journal911/splits --val-ratio 0.05
+.venv/bin/ptd split data/journal911/corpus.jsonl \
+  -o data/journal911/corpus-splits --val-ratio 0.05
+```
+
+`ptd summarize` nutzt standardmäßig `qwen3.5:4b` über
+`http://localhost:11434` (`--model`, `--endpoint` änderbar). Läuft Ollama
+nicht, werden automatisch extraktive Zusammenfassungen erzeugt
+(`--extractive-only` erzwingt dies). Der Lauf ist fortsetzbar: bereits
+vorhandene `id`s in der Ausgabe-JSONL werden übersprungen.
+
+### Aufgaben im Instruction-Datensatz
+
+Pro Dokument entstehen bis zu fünf Beispiele: `summarize`, `claims`, `topics`,
+`evidence`, `metadata`. Jedes Beispiel enthält `messages` im Chat-Format
+(System/User/Assistant) sowie `metadata` mit Quell-URL, Pfad, Autor, Datum,
+Verfahren und Hinweis zur Historie.
+
+**Wichtig:** Der Datensatz dokumentiert die *Standpunkte und Behauptungen der
+jeweiligen Quelle*. Der System-Prompt weist das Modell ausdrücklich an,
+Aussagen zu attribuieren und nicht als eigene Fakten zu übernehmen. Die
+Inhalte der gespiegelten Website werden nicht vom Projekt überprüft oder
+befürwortet. Ein Hinweis für die Nutzung: prüfe vor einer Veröffentlichung
+Urheberrecht, Lizenz und persönliche Daten der Quellen.
+
 ## Bestehende Werkzeuge und Einordnung
 
 Für die einzelnen Stufen gibt es etablierte Projekte; dieses Projekt bündelt
@@ -199,6 +257,9 @@ src/prepare_training_data/
 ├── cli.py           # Kommandozeile
 ├── pipeline.py      # build/extract
 ├── extractors/      # pdf.py, html.py, docx.py, text.py
+├── mirror.py        # Website-Spiegel mit Manifest
+├── summarize.py     # LLM-Zusammenfassungen (Ollama, attributiv)
+├── dataset.py       # Instruction-Datensatz + Volltext-Korpus
 ├── normalize.py     # Unicode/Whitespace/Boilerplate
 ├── chunking.py      # satzbewusstes Chunking
 ├── quality.py       # Heuristiken + Spracherkennung

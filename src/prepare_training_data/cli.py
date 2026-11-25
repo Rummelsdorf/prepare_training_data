@@ -7,10 +7,14 @@ import json
 import sys
 import warnings
 from collections import Counter
+from pathlib import Path
 
 from . import __version__
+from .dataset import build_dataset
 from .jsonl import read_jsonl, write_jsonl
+from .mirror import MirrorConfig, mirror_site
 from .pipeline import BuildConfig, run_build, run_extract
+from .summarize import SummaryConfig, summarize_documents, write_readable
 from .quality import QualityConfig
 from .stats import collect_stats, format_stats
 from .transform import (
@@ -304,6 +308,75 @@ def _cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mirror(args: argparse.Namespace) -> int:
+    manifest = mirror_site(
+        MirrorConfig(
+            seeds=tuple(args.urls),
+            out_dir=Path(args.out_dir),
+            delay=args.delay,
+            max_pages=args.max_pages,
+            max_documents=args.max_documents,
+            max_depth=args.max_depth,
+            include_images=args.include_images,
+            use_sitemap=not args.no_sitemap,
+        )
+    )
+    stats = manifest["stats"]
+    print(
+        f"Spiegel nach {args.out_dir}: {stats['pages']} Seiten, "
+        f"{stats['documents']} Dokumente, {stats['images']} Bilder, "
+        f"{stats['bytes'] / 1_048_576:.1f} MiB, {stats['errors']} Fehler"
+    )
+    return 0
+
+
+def _cmd_summarize(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .summarize import load_documents
+
+    documents = load_documents(
+        Path(args.input),
+        manifest_path=Path(args.manifest) if args.manifest else None,
+        max_chars=args.max_chars,
+        include_html=args.include_html,
+        limit=args.limit or 0,
+    )
+    print(f"{len(documents)} Dokumente zu zusammenfassen.", file=sys.stderr)
+    results = summarize_documents(
+        documents,
+        SummaryConfig(
+            model=args.model,
+            endpoint=args.endpoint,
+            max_chars=args.max_chars,
+            language=args.lang,
+            extractive_only=args.extractive_only,
+        ),
+        Path(args.out),
+    )
+    if args.markdown:
+        write_readable(results, Path(args.markdown))
+    print(f"{len(results)} Zusammenfassungen -> {args.out}")
+    return 0
+
+
+def _cmd_dataset(args: argparse.Namespace) -> int:
+    result = build_dataset(
+        Path(args.extracted),
+        Path(args.summaries),
+        Path(args.out),
+        input_chars=args.input_chars,
+        corpus_path=Path(args.corpus) if args.corpus else None,
+        include_html=args.include_html,
+    )
+    tasks = ", ".join(f"{key}: {value}" for key, value in result["tasks"].items())
+    print(f"{result['examples']} Beispiele aus {result['documents']} Dokumenten -> {args.out}")
+    print(f"  Aufgaben: {tasks}")
+    if result.get("corpus"):
+        print(f"  Korpus: {result['corpus']} Texte -> {result['corpus_path']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ptd",
@@ -407,6 +480,52 @@ def build_parser() -> argparse.ArgumentParser:
     stats.add_argument("input", help="Eingabe-JSONL")
     stats.add_argument("--json", action="store_true", help="Als JSON ausgeben")
     stats.set_defaults(func=_cmd_stats)
+
+    mirror = subparsers.add_parser(
+        "mirror",
+        help="Website lokal spiegeln (HTML + PDF/DOC), inkl. sitemap.xml",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    mirror.add_argument("urls", nargs="+", help="Start-URL(s)")
+    mirror.add_argument("-o", "--out-dir", required=True, help="Zielverzeichnis")
+    mirror.add_argument("--delay", type=float, default=0.25, help="Sekunden zwischen Requests")
+    mirror.add_argument("--max-pages", type=int, default=500, help="Max. HTML-Seiten")
+    mirror.add_argument("--max-documents", type=int, default=1000, help="Max. Dokumente")
+    mirror.add_argument("--max-depth", type=int, default=3, help="Max. Link-Tiefe")
+    mirror.add_argument("--include-images", action="store_true", help="Auch Bilder laden")
+    mirror.add_argument("--no-sitemap", action="store_true", help="sitemap.xml ignorieren")
+    mirror.set_defaults(func=_cmd_mirror)
+
+    summarize = subparsers.add_parser(
+        "summarize",
+        help="Dokumente per lokalem LLM zusammenfassen (mit Quellen-Zuschreibung)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    summarize.add_argument("input", help="Extrahierte JSONL (ein Record pro PDF-Seite)")
+    summarize.add_argument("-o", "--out", required=True, help="Ziel-JSONL")
+    summarize.add_argument("--manifest", help="Mirror-Manifest.jsonl für URL/Titel")
+    summarize.add_argument("--model", default="qwen3.5:4b", help="Ollama-Modell")
+    summarize.add_argument("--endpoint", default="http://localhost:11434", help="Ollama-URL")
+    summarize.add_argument("--max-chars", type=int, default=18000, help="Max. Zeichen pro Dokument")
+    summarize.add_argument("--lang", default="de", help="Sprache der Zusammenfassungen")
+    summarize.add_argument("--extractive-only", action="store_true", help="Ohne LLM")
+    summarize.add_argument("--include-html", action="store_true", help="Auch HTML-Records")
+    summarize.add_argument("--markdown", help="Zusätzliche Markdown-Übersicht")
+    summarize.add_argument("--limit", type=int, default=0, help="Nur die ersten N Dokumente")
+    summarize.set_defaults(func=_cmd_summarize)
+
+    dataset = subparsers.add_parser(
+        "dataset",
+        help="Instruction-Datensatz aus Zusammenfassungen bauen",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    dataset.add_argument("extracted", help="Extrahierte JSONL")
+    dataset.add_argument("summaries", help="Zusammenfassungen als JSONL")
+    dataset.add_argument("-o", "--out", required=True, help="Ziel-JSONL (Chat-Format)")
+    dataset.add_argument("--corpus", help="Optional: Volltext-Korpus für Pretraining")
+    dataset.add_argument("--input-chars", type=int, default=6000, help="Textlänge pro Beispiel")
+    dataset.add_argument("--include-html", action="store_true", help="Auch HTML-Records")
+    dataset.set_defaults(func=_cmd_dataset)
 
     return parser
 
