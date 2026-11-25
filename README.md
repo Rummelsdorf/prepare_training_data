@@ -181,10 +181,12 @@ mkdir -p data/journal911
   --pdf-fast --quiet
 
 # 3. Zusammenfassungen mit einem lokalen Ollama-Modell erzeugen
+# --extractive-only: schnell und deterministisch (Standard im Skript).
+# Ohne Flag: lokales LLM (-standardmäßig qwen3.5:4b, langsam auf CPU).
 .venv/bin/ptd summarize data/journal911/extracted.jsonl \
   -o data/journal911/summaries.jsonl \
   --manifest data/journal911/mirror/manifest.jsonl \
-  --markdown data/journal911/SUMMARIES.md --lang de --limit 0
+  --markdown data/journal911/SUMMARIES.md --lang de --extractive-only
 
 # 4. Instruction-Datensatz (Chat-Format) + Volltext-Korpus bauen
 .venv/bin/ptd dataset data/journal911/extracted.jsonl \
@@ -201,8 +203,13 @@ mkdir -p data/journal911
 `ptd summarize` nutzt standardmäßig `qwen3.5:4b` über
 `http://localhost:11434` (`--model`, `--endpoint` änderbar). Läuft Ollama
 nicht, werden automatisch extraktive Zusammenfassungen erzeugt
-(`--extractive-only` erzwingt dies). Der Lauf ist fortsetzbar: bereits
-vorhandene `id`s in der Ausgabe-JSONL werden übersprungen.
+(`--extractive-only` erzwingt dies). Auf CPU-only-Systemen ist ein 4B-Modell
+sehr langsam (~Minuten pro Dokument); für große Korpora daher
+`--extractive-only` oder ein kleines Modell wie `qwen3.5:0.8b` verwenden.
+Das Skript `scripts/journal911_pipeline.sh` nutzt standardmäßig extraktive
+Zusammenfassungen (`PTD_SUMMARY_MODE=llm` für LLM). Der Lauf ist
+fortsetzbar: bereits vorhandene `id`s in der Ausgabe-JSONL werden
+übersprungen.
 
 ### Aufgaben im Instruction-Datensatz
 
@@ -212,7 +219,9 @@ Pro Dokument entstehen bis zu fünf Beispiele: `summarize`, `claims`, `topics`,
 Verfahren und Hinweis zur Historie.
 
 **Wichtig:** Der Datensatz dokumentiert die *Standpunkte und Behauptungen der
-jeweiligen Quelle*. Der System-Prompt weist das Modell ausdrücklich an,
+jeweiligen Quelle*. Er gibt diese Inhalte nicht als eigene Feststellungen
+wieder und befürwortet sie nicht. Siehe [DATASET.md](DATASET.md) für die
+Dataset Card. Der System-Prompt weist das Modell ausdrücklich an,
 Aussagen zu attribuieren und nicht als eigene Fakten zu übernehmen. Die
 Inhalte der gespiegelten Website werden nicht vom Projekt überprüft oder
 befürwortet. Ein Hinweis für die Nutzung: prüfe vor einer Veröffentlichung
