@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prepare-training-data"
+version = "0.1.0"
+description = "Extract, clean, chunk and deduplicate text from PDFs, HTML, DOCX and plain text for ML training data"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Rummel" }]
+dependencies = [
+    "pymupdf4llm>=2.0",
+    "trafilatura>=2.0",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "html2text>=2024.2.26",
+    "langdetect>=1.0.9",
+    "tqdm>=4.66",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+hf = ["datasets>=2.18"]
+ocr = ["rapidocr-onnxruntime"]
+
+[project.scripts]
+ptd = "prepare_training_data.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore:.*SOCKS support in urllib3.*",
+]

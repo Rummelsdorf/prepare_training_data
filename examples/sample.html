@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Trainingsdaten aus Webseiten extrahieren – Beispielartikel</title>
+  <meta name="author" content="Beispielredaktion">
+  <meta name="description" content="Ein Beispielartikel für den HTML-Extraktor.">
+</head>
+<body>
+  <header class="site-header">
+    <nav>
+      <a href="/">Start</a> · <a href="/blog">Blog</a> · <a href="/kontakt">Kontakt</a>
+    </nav>
+  </header>
+
+  <div class="cookie-banner">Diese Website verwendet Cookies. Bitte stimmen Sie zu.</div>
+
+  <main>
+    <article>
+      <h1>Trainingsdaten aus Webseiten extrahieren</h1>
+      <p class="lead">
+        Wer ein Sprachmodell trainieren möchte, braucht saubere Textdaten. Webseiten
+        enthalten jedoch sehr viel Ballast: Navigation, Werbung, Cookie-Hinweise und
+        Fußzeilen. Ein guter Extraktor behält nur den eigentlichen Artikelinhalt.
+      </p>
+
+      <h2>Warum Roh-HTML nicht reicht</h2>
+      <p>
+        Roh-HTML besteht zu großen Teilen aus Markup, Skripten und wiederkehrenden
+        Seitenelementen. Würde man diese Inhalte ungefiltert in einen Trainingsdatensatz
+        übernehmen, lernt das Modell vor allem Rauschen. Stattdessen sollte der
+        Hauptinhalt isoliert, normalisiert und auf Qualität geprüft werden.
+      </p>
+
+      <h2>Typische Verarbeitungsschritte</h2>
+      <ul>
+        <li>Hauptinhalt von Navigation und Werbung trennen</li>
+        <li>Whitespace und Unicode vereinheitlichen</li>
+        <li>Text in überlappende Chunks aufteilen</li>
+        <li>Sprache erkennen und unerwünschte Sprachen filtern</li>
+        <li>Exakte und nahezu identische Duplikate entfernen</li>
+      </ul>
+
+      <p>
+        Der Beispielartikel zeigt, dass die eigentliche Information oft nur einen
+        kleinen Teil des HTML-Dokuments ausmacht. Eine Bibliothek wie trafilatura
+        nutzt heuristische Regeln und Textdichte, um den Artikelbereich zu finden.
+        Für wissenschaftliche PDFs eignen sich hingegen Werkzeuge, die das Layout
+        analysieren und den Text in Lesereihenfolge ausgeben.
+      </p>
+    </article>
+  </main>
+
+  <footer>
+    <p>© 2026 Beispielverlag · Impressum · Datenschutz</p>
+  </footer>
+</body>
+</html>
