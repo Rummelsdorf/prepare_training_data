@@ -160,38 +160,126 @@ def load_documents(
     return documents[:limit] if limit else documents
 
 
+_STOPWORDS = {
+    "the", "and", "of", "to", "in", "a", "an", "is", "are", "was", "were", "be",
+    "been", "that", "this", "these", "those", "for", "on", "with", "by", "from",
+    "as", "at", "it", "its", "or", "but", "not", "have", "has", "had", "which",
+    "their", "they", "them", "there", "here", "can", "could", "would", "should",
+    "may", "also", "into", "about", "than", "then", "over", "under", "more",
+    "most", "some", "such", "only", "two", "three", "one", "der", "die", "das",
+    "den", "dem", "des", "und", "ist", "sind", "von", "mit", "auf", "für", "sich",
+    "im", "in", "zu", "zum", "zur", "ein", "eine", "einer", "als", "auch", "dass",
+}
+_EVIDENCE_HINTS = {
+    "experiment": "experimentelle Messungen",
+    "data": "Datenauswertungen",
+    "measurement": "Messdaten",
+    "study": "Literatur- und Quellenstudien",
+    "analysis": "analytische Auswertungen",
+    "witness": "Zeugenaussagen",
+    "testimony": "Zeugenaussagen",
+    "interview": "Interviews",
+    "document": "Dokumentenanalysen",
+    "report": "Auswertung von Berichten",
+    "model": "modellhafte Modellierung",
+    "simulation": "Simulationen",
+    "photograph": "Foto- und Bildmaterial",
+    "video": "Videoaufzeichnungen",
+    "statistic": "statistische Auswertungen",
+}
+_STANCE_HINTS = (
+    ("critical", "kritisch gegenüber der offiziellen Darstellung"),
+    ("challenge", "kritisch gegenüber der offiziellen Darstellung"),
+    ("refut", "widerlegend gegenüber einer verbreiteten Darstellung"),
+    ("fraud", "kritisch gegenüber der offiziellen Darstellung"),
+    ("contradiction", "widerlegend gegenüber einer verbreiteten Darstellung"),
+    ("demolition", "befürwortet die These einer kontrollierten Zerstörung"),
+    ("conspiracy", "kritisch gegenüber der offiziellen Darstellung"),
+    ("official", "beschäftigt sich kritisch mit der offiziellen Darstellung"),
+)
+
+
+def _plain(text: str) -> str:
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = text.replace("**", "").replace("__", "").replace("*", "")
+    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*[-|]{3,}\s*$", "", text, flags=re.MULTILINE)
+    return _clean(text)
+
+
 def _extractive(document: Document) -> dict[str, Any]:
-    """Deterministic fallback: frequency-ranked sentences from the text."""
+    """Deterministic, attribution-preserving summary used as default/fallback.
+
+    Selects informative sentences by position and term frequency, then wraps
+    them in a German framing that makes clear they are the source's claims.
+    """
+    plain = _plain(document.text)
     sentences = [
-        _clean(part)
-        for part in re.split(r"(?<=[.!?])\s+", document.text)
-        if len(part.split()) >= 8
+        sentence
+        for sentence in (
+            _clean(part)
+            for part in re.split(r"(?<=[.!?])\s+", plain)
+        )
+        if 8 <= len(sentence.split()) <= 70
     ]
     if not sentences:
-        sentences = [document.text[:400]]
-    stopwords = {
-        "the", "and", "of", "to", "in", "a", "is", "that", "for", "on", "with",
-        "this", "by", "it", "as", "are", "was", "be", "from", "der", "die",
-        "das", "und", "in", "ist", "von", "mit", "sich", "auf", "für", "den",
-    }
+        sentences = [plain[:600]]
+
     words = [
-        word.lower().strip(".,;:()[]\"")
-        for word in " ".join(sentences[:60]).split()
-        if len(word) > 3
+        word.lower().strip(".,;:()[]\"“”–—")
+        for word in " ".join(sentences[:80]).split()
     ]
-    counts = Counter(word for word in words if word not in stopwords)
-    ranked = sorted(
-        sentences[:60],
-        key=lambda sentence: -sum(counts.get(word.lower().strip(".,;:()[]\""), 0)
-                                  for word in sentence.split()),
+    counts = Counter(
+        word for word in words if len(word) > 3 and word not in _STOPWORDS
     )
-    top = [sentence for sentence in ranked[:3]]
+
+    def score(indexed: tuple[int, str]) -> float:
+        index, sentence = indexed
+        tokens = [
+            word.lower().strip(".,;:()[]\"“”–—") for word in sentence.split()
+        ]
+        score_value = sum(counts.get(token, 0) for token in tokens)
+        if index < len(sentences) * 0.25:
+            score_value *= 1.4
+        if len(sentence.split()) > 55:
+            score_value *= 0.7
+        return score_value
+
+    ranked = sorted(enumerate(sentences[:80]), key=score, reverse=True)
+    selected: list[str] = []
+    seen: set[str] = set()
+    for index, sentence in ranked:
+        fingerprint = " ".join(sentence.lower().split()[:8])
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        selected.append(sentence)
+        if len(selected) == 4:
+            break
+    selected.sort(key=lambda sentence: sentences.index(sentence))
+
+    topics = [word for word, _ in counts.most_common(8) if len(word) > 4][:6]
+    lowered = plain.lower()
+    evidence_hints = [
+        label for needle, label in _EVIDENCE_HINTS.items() if needle in lowered
+    ]
+    evidence = (
+        "Laut Quelle stützt sich die Darstellung auf " + ", ".join(evidence_hints[:3]) + "."
+        if evidence_hints
+        else "Die Quelle nennt keine klar benannte Methode."
+    )
+    stance = next(
+        (label for needle, label in _STANCE_HINTS if needle in lowered),
+        "analytisch und quellenorientiert",
+    )
+    summary = "Laut Quelle: " + " ".join(selected)[:1400]
     return {
-        "summary": " ".join(top)[:1200],
-        "claims": top[:4],
-        "topics": [],
-        "evidence": "",
-        "stance": "",
+        "summary": summary,
+        "claims": selected[:5],
+        "topics": topics,
+        "evidence": evidence,
+        "stance": f"Der Text ist {stance}.",
         "method": "extractive",
     }
 
