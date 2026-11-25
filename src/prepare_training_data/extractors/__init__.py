@@ -35,6 +35,7 @@ def extract_source(
     html_mode: str = "auto",
     pdf_ocr: bool = False,
     pdf_fast: bool = False,
+    pdf_raw: bool = False,
 ) -> list[Document]:
     """Extrahiert Dokumente aus Dateipfad oder URL."""
     if is_url(source):
@@ -46,7 +47,7 @@ def extract_source(
 
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        return extract_pdf(path, use_ocr=pdf_ocr, fast=pdf_fast)
+        return extract_pdf(path, use_ocr=pdf_ocr, fast=pdf_fast, raw=pdf_raw)
     if suffix in {".html", ".htm", ".xhtml"}:
         return extract_html(path.read_bytes(), source=str(path), mode=html_mode)
     if suffix == ".docx":

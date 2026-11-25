@@ -48,6 +48,11 @@ def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
         help="PDFs ohne Layout-Analyse extrahieren (deutlich schneller)",
     )
     group.add_argument(
+        "--pdf-raw",
+        action="store_true",
+        help="PDF-Rohtext via PyMuPDF (am schnellsten, ohne Markdown/Layout)",
+    )
+    group.add_argument(
         "--plain",
         action="store_true",
         help="Markdown-Markierungen entfernen",
@@ -170,6 +175,7 @@ def _build_config(args: argparse.Namespace) -> BuildConfig:
         html_mode=args.html_mode,
         pdf_ocr=args.ocr,
         pdf_fast=args.pdf_fast,
+        pdf_raw=args.pdf_raw,
         plain=args.plain,
         max_file_size_mb=args.max_file_size_mb,
         limit=args.limit,
@@ -221,6 +227,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         html_mode=args.html_mode,
         pdf_ocr=args.ocr,
         pdf_fast=args.pdf_fast,
+        pdf_raw=args.pdf_raw,
         plain=args.plain,
         max_file_size_mb=args.max_file_size_mb,
         limit=args.limit,

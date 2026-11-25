@@ -36,6 +36,7 @@ class BuildConfig:
     html_mode: str = "auto"
     pdf_ocr: bool = False
     pdf_fast: bool = False
+    pdf_raw: bool = False
     plain: bool = False
     max_file_size_mb: float = 200.0
     limit: int | None = None
@@ -164,6 +165,7 @@ def run_build(inputs: list[str], out_path: str | Path, config: BuildConfig) -> d
                     html_mode=config.html_mode,
                     pdf_ocr=config.pdf_ocr,
                     pdf_fast=config.pdf_fast,
+                    pdf_raw=config.pdf_raw,
                 )
                 documents = _clean_documents(documents, config.plain)
             except Exception as error:  # noqa: BLE001 - Fehler pro Datei sammeln
@@ -269,6 +271,7 @@ def run_extract(inputs: list[str], out_path: str | Path, config: BuildConfig) ->
                     html_mode=config.html_mode,
                     pdf_ocr=config.pdf_ocr,
                     pdf_fast=config.pdf_fast,
+                    pdf_raw=config.pdf_raw,
                 )
                 documents = _clean_documents(documents, config.plain)
             except Exception as error:  # noqa: BLE001

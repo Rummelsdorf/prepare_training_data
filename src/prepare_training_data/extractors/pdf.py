@@ -9,7 +9,12 @@ from pathlib import Path
 from ..records import Document
 
 
-def extract_pdf(path: Path, use_ocr: bool = False, fast: bool = False) -> list[Document]:
+def extract_pdf(
+    path: Path, use_ocr: bool = False, fast: bool = False, raw: bool = False
+) -> list[Document]:
+    """Extract PDF text. ``raw`` uses plain PyMuPDF text (fast, no layout)."""
+    if raw:
+        return _extract_pdf_plain(path)
     try:
         import pymupdf4llm
     except ImportError:

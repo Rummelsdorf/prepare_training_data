@@ -17,7 +17,7 @@ if [[ ! -f "$DIR/mirror/manifest.json" ]]; then
     --max-pages 500 --max-documents 400 --max-depth 3
 fi
 
-"$PY" extract "$DIR/mirror" -o "$DIR/extracted.jsonl" --pdf-fast --quiet
+"$PY" extract "$DIR/mirror" -o "$DIR/extracted.jsonl" --pdf-raw --quiet
 
 SUMMARIZE_ARGS=(
   "$DIR/extracted.jsonl" -o "$DIR/summaries.jsonl"
