@@ -94,6 +94,16 @@ def _iso(milliseconds: Any) -> str:
         return ""
 
 
+def message_model(data: dict[str, Any]) -> tuple[str, str, str]:
+    """Return (model id, provider, variant) recorded for an assistant message."""
+    model = data.get("model") or {}
+    return (
+        str(model.get("id") or ""),
+        str(model.get("providerID") or ""),
+        str(model.get("variant") or ""),
+    )
+
+
 def message_text(
     data: dict[str, Any], config: OpenCodeConfig
 ) -> tuple[str, list[str]]:
@@ -190,16 +200,29 @@ def build_examples(
             stats.skipped_short += 1
             continue
         role = "user" if message["type"] == "user" else "assistant"
-        turns.append({"role": role, "content": text, "created": message["created"]})
-        model = (message["data"].get("model") or {}).get("id")
+        model, provider, variant = message_model(message["data"])
         if model:
             models.add(model)
+        turns.append(
+            {
+                "role": role,
+                "content": text,
+                "created": message["created"],
+                "model": model,
+                "provider": provider,
+                "variant": variant,
+            }
+        )
 
     stats.messages += len(turns)
     if not turns:
         return
 
-    def metadata(index: int) -> dict[str, Any]:
+    session_source = f"opencode:{session['id']}"
+
+    def metadata(
+        index: int, source_model: str, provider: str, variant: str
+    ) -> dict[str, Any]:
         return {
             "session_id": session["id"],
             "session_title": session.get("title") or session.get("slug"),
@@ -207,9 +230,16 @@ def build_examples(
             "project_id": session.get("project_id"),
             "session_created": _iso(session.get("time_created")),
             "turn_index": index,
-            "model": sorted(models),
-            "source": "opencode",
-            "framing": "Lokale OpenCode-Konversation; kann vertrauliche Inhalte enthalten.",
+            "models_in_session": sorted(models),
+            "source_model": source_model,
+            "source_provider": provider,
+            "source_variant": variant,
+            "session_source": session_source,
+            "framing": (
+                "Antwort laut OpenCode-Metadaten von "
+                f"{source_model or 'unbekanntem Modell'} erzeugt; "
+                "Session wird nur als Provenance/Split-Schlüssel geführt."
+            ),
         }
 
     if config.mode == "session":
@@ -217,11 +247,16 @@ def build_examples(
             turns = turns[1:]
         if not turns:
             return
+        answers = [turn for turn in turns if turn["role"] == "assistant" and turn["model"]]
+        source_model = answers[-1]["model"] if answers else ""
+        provider = answers[-1]["provider"] if answers else ""
+        variant = answers[-1]["variant"] if answers else ""
         yield {
             "id": f"{session['id']}-session",
-            "source": f"opencode:{session['id']}",
+            "source": source_model or session_source,
+            "split_key": session_source,
             "messages": [{"role": t["role"], "content": t["content"]} for t in turns],
-            "metadata": metadata(0),
+            "metadata": metadata(0, source_model, provider, variant),
         }
         return
 
@@ -235,15 +270,20 @@ def build_examples(
             pair.append({"role": prior["role"], "content": prior["content"]})
         pair.append({"role": "user", "content": turn["content"]})
         following = turns[position + 1 :]
-        if following and following[0]["role"] == "assistant":
-            pair.append({"role": "assistant", "content": following[0]["content"]})
+        answer = following[0] if following and following[0]["role"] == "assistant" else None
+        if answer:
+            pair.append({"role": "assistant", "content": answer["content"]})
         if not any(item["role"] == "assistant" for item in pair):
             continue
+        source_model = answer["model"] if answer else ""
+        provider = answer["provider"] if answer else ""
+        variant = answer["variant"] if answer else ""
         yield {
             "id": f"{session['id']}-{position}",
-            "source": f"opencode:{session['id']}",
+            "source": source_model or session_source,
+            "split_key": session_source,
             "messages": pair,
-            "metadata": metadata(index),
+            "metadata": metadata(index, source_model, provider, variant),
         }
         index += 1
 

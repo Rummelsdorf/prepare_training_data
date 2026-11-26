@@ -1,3 +1,5 @@
+import json
+
 from prepare_training_data.opencode import (
     ExtractStats,
     OpenCodeConfig,
@@ -51,7 +53,10 @@ def test_build_examples_pairs_and_session():
     assert len(pairs) == 1
     assert [m["role"] for m in pairs[0]["messages"]] == ["user", "assistant"]
     assert pairs[0]["metadata"]["session_id"] == "ses1"
-    assert pairs[0]["metadata"]["model"] == ["test-model"]
+    assert pairs[0]["source"] == "test-model"
+    assert pairs[0]["metadata"]["source_model"] == "test-model"
+    assert pairs[0]["metadata"]["models_in_session"] == ["test-model"]
+    assert pairs[0]["split_key"] == "opencode:ses1"
     assert stats.messages == 2
 
     whole = list(build_examples(session, messages, OpenCodeConfig(mode="session"), ExtractStats()))
@@ -68,3 +73,23 @@ def test_build_examples_drops_short_messages():
     stats = ExtractStats()
     assert list(build_examples(session, messages, OpenCodeConfig(), stats)) == []
     assert stats.skipped_short == 2
+
+
+def test_split_uses_split_key_not_model_source(tmp_path):
+    from prepare_training_data.transform import split_file
+
+    records = [
+        {"id": "a", "source": "model-a", "split_key": "opencode:ses1", "text": "x"},
+        {"id": "b", "source": "model-a", "split_key": "opencode:ses1", "text": "y"},
+        {"id": "c", "source": "model-b", "split_key": "opencode:ses2", "text": "z"},
+    ]
+    path = tmp_path / "in.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in records), encoding="utf-8")
+    counts = split_file(path, tmp_path / "splits", val_ratio=0.5, seed=42)
+    assert counts["train"] + counts["val"] == 3
+    # Both records of session 1 must land in the same split.
+    train = [json.loads(l) for l in open(tmp_path / "splits" / "train.jsonl")]
+    val = [json.loads(l) for l in open(tmp_path / "splits" / "val.jsonl")]
+    ses1_train = sum(row["split_key"] == "opencode:ses1" for row in train)
+    ses1_val = sum(row["split_key"] == "opencode:ses1" for row in val)
+    assert not (ses1_train and ses1_val)

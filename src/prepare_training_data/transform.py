@@ -95,7 +95,9 @@ def split_file(
         val_path
     ) as validation:
         for record in read_jsonl(in_path):
-            source = str(record.get("source") or record.get("id") or "")
+            source = str(
+                record.get("split_key") or record.get("source") or record.get("id") or ""
+            )
             digest = hashlib.blake2b(
                 f"{seed}:{source}".encode(), digest_size=8
             ).digest()

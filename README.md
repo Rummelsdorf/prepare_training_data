@@ -391,6 +391,14 @@ Standardmäßig entsteht **ein Beispiel pro Nutzerfrage mit Antwort**
 (`--mode pairs`). `--mode session` erzeugt ein Beispiel pro kompletter Session,
 `--context-turns 1` nimmt den vorherigen Turn als Kontext mit auf.
 
+Als `source` wird — sofern in den OpenCode-Metadaten vorhanden — **das Modell
+der antwortenden Nachricht** verwendet (z. B. `flint-40b-free`), nicht die
+Session. Die Session bleibt in `split_key`, `metadata.session_id` und
+`metadata.session_source` erhalten; `metadata.models_in_session` listet alle
+in der Session verwendeten Modelle, `source_provider` / `source_variant`
+ergänzen die Herkunft. Der Train/Val-Split läuft über `split_key`, also
+weiterhin pro Session.
+
 Reasoning-Texte und Tool-Ausgaben werden ausgelassen (flags
 `--include-reasoning`, `--include-tools`), Nachrichten unter `--min-chars`
 (Standard 40) werden verworfen. Mit `--project`, `--directory`, `--session-id`
