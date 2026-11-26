@@ -406,10 +406,13 @@ und `--limit` lässt sich der Umfang einschränken.
 
 **Wichtig:** Die Daten können vertrauliche Inhalte enthalten. Standardmäßig
 werden API-Keys, Bearer-Tokens, AWS-Keys, Private Keys und
+GitHub-/Slack-Tokens, JWTs, `export KEY=…`, URLs mit Zugangsdaten und
 `api_key=…`/`password=…`-Zuweisungen maskiert (`--no-redact` deaktiviert das).
-Die Splits erfolgen quellenweise pro Session, damit keine Session in train
-*und* val landet. Vor einer Veröffentlichung eine zusätzliche PII-Prüfung
-durchführen.
+Nach dem Export wird die Ausgabe automatisch erneut nach geheimnisartigen
+Strings durchsucht und ein Treffer gemeldet. Es gibt bewusst **kein
+`framing`-Feld** in diesen Records. Die Splits erfolgen quellenweise pro
+Session, damit keine Session in train *und* val landet. Vor einer
+Veröffentlichung zusätzlich eine PII-Prüfung durchführen.
 
 ## Tests
 

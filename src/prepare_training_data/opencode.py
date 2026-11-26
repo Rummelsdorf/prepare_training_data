@@ -16,8 +16,12 @@ DEFAULT_DB = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
 
 SECRET_PATTERNS = (
     (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "[REDACTED_API_KEY]"),
-    (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._-]{20,}"), r"\1[REDACTED_TOKEN]"),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "[REDACTED_GITHUB_TOKEN]"),
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"), "[REDACTED_GITHUB_TOKEN]"),
+    (re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), "[REDACTED_SLACK_TOKEN]"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_KEY]"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "[REDACTED_JWT]"),
+    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}"), "bearer [REDACTED_TOKEN]"),
     (
         re.compile(
             r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
@@ -27,10 +31,15 @@ SECRET_PATTERNS = (
     ),
     (
         re.compile(
-            r"(?i)\b(api[_-]?key|token|password|secret)\s*[:=]\s*[\"']?[A-Za-z0-9._-]{12,}[\"']?"
+            r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|password|passwd|pwd|secret)\s*[:=]\s*[\"']?[A-Za-z0-9._~+/=-]{8,}[\"']?"
         ),
         r"\1=[REDACTED]",
     ),
+    (
+        re.compile(r"(?i)\bexport\s+[A-Z_][A-Z0-9_]*\s*=\s*[\"']?[^\s\"']{8,}[\"']?"),
+        "[REDACTED_ENV]",
+    ),
+    (re.compile(r"://[^\s/@:]+:[^\s/@]+@"), "://[REDACTED_CREDENTIALS]@"),
 )
 
 
@@ -235,11 +244,6 @@ def build_examples(
             "source_provider": provider,
             "source_variant": variant,
             "session_source": session_source,
-            "framing": (
-                "Antwort laut OpenCode-Metadaten von "
-                f"{source_model or 'unbekanntem Modell'} erzeugt; "
-                "Session wird nur als Provenance/Split-Schlüssel geführt."
-            ),
         }
 
     if config.mode == "session":
@@ -286,6 +290,16 @@ def build_examples(
             "metadata": metadata(index, source_model, provider, variant),
         }
         index += 1
+
+
+def scan_secrets(path: Path) -> int:
+    """Count secret-like strings left in a generated JSONL file."""
+    hits = 0
+    for record in read_jsonl(path):
+        for message in record.get("messages", []):
+            _, found = redact(str(message.get("content", "")))
+            hits += found
+    return hits
 
 
 def extract(db_path: Path, out_path: Path, config: OpenCodeConfig) -> dict[str, Any]:

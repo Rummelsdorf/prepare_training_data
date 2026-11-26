@@ -16,6 +16,10 @@ def test_redact_secrets():
     assert "sk-abc" not in clean
     assert "[REDACTED_API_KEY]" in clean
     assert "[REDACTED_TOKEN]" in clean
+    text = "ghp_abcdefghijklmnopqrstuvwxyz1234567890 export TOKEN=supersecretvalue123"
+    clean, count = redact(text)
+    assert count >= 2
+    assert "[REDACTED_GITHUB_TOKEN]" in clean and "[REDACTED_ENV]" in clean
 
 
 def test_message_text_excludes_internal_parts_by_default():
@@ -73,6 +77,18 @@ def test_build_examples_drops_short_messages():
     stats = ExtractStats()
     assert list(build_examples(session, messages, OpenCodeConfig(), stats)) == []
     assert stats.skipped_short == 2
+
+
+def test_scan_secrets(tmp_path):
+    from prepare_training_data.opencode import scan_secrets
+
+    path = tmp_path / "data.jsonl"
+    path.write_text(
+        json.dumps({"messages": [{"role": "user", "content": "sk-abcdefghijklmnopqrstuvwxyz1234 ok"}]})
+        + "\n",
+        encoding="utf-8",
+    )
+    assert scan_secrets(path) == 1
 
 
 def test_split_uses_split_key_not_model_source(tmp_path):

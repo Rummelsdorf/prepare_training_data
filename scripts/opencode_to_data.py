@@ -14,6 +14,7 @@ from prepare_training_data.opencode import (  # noqa: E402
     DEFAULT_DB,
     OpenCodeConfig,
     extract,
+    scan_secrets,
 )
 from prepare_training_data.transform import split_file  # noqa: E402
 
@@ -58,6 +59,12 @@ def main() -> int:
         f"  Nachrichten: {result['messages']:,}, zu kurz: {result['skipped_short']:,}, "
         f"ohne Text: {result['skipped_no_text']:,}, maskiert: {result['redactions']:,}"
     )
+    if not args.no_redact:
+        remaining = scan_secrets(args.out)
+        if remaining:
+            print(f"  Warnung: {remaining} geheimnisartige Strings im Export gefunden!", file=sys.stderr)
+        else:
+            print("  Redaktions-Prüfung: keine geheimnisartigen Strings gefunden.")
     if args.split:
         counts = split_file(args.out, args.split, args.val_ratio)
         print(f"  Split: train={counts['train']:,}, val={counts['val']:,} -> {args.split}")
