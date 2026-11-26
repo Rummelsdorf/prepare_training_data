@@ -353,9 +353,12 @@ make model-fit FREE_RAM_MB=2915        # mit dem tatsächlich gemessenen freien 
 ```
 
 Der Bericht zeigt eine Gesamtrangliste, eine eigene Hugging-Face-Tabelle und
-den jeweils besten Fit inklusive `llama-cli`-Befehl. Es werden **keine Modelle
-heruntergeladen**; die Schätzungen ersetzen keine echte Messung des konkreten
-Modells.
+den jeweils besten Fit inklusive `llama-cli`-Befehl. Die Empfehlung ist
+**SIMD-aware**: `quant_affinity()` bewertet die Quantisierung gegen die
+gemessenen Flags (AVX-VNNI begünstigt INT8, fehlendes FP16/BF16 benachteiligt
+FP16-Gewichte); der Textabschnitt „SIMD-basierte Quantisierungs-Empfehlung"
+erklärt die Entscheidung. Es werden **keine Modelle heruntergeladen**; die
+Schätzungen ersetzen keine echte Messung des konkreten Modells.
 
 Alles in einem Schritt (Benchmark + Empfehlung):
 

@@ -233,6 +233,49 @@ def _calibration(benchmark: dict[str, Any]) -> dict[str, float]:
     return result
 
 
+def quant_affinity(quant: str, features: dict[str, Any]) -> float:
+    """How well a quantization maps to the measured SIMD instruction set."""
+    key = quant.replace("_", "").upper()
+    if key.startswith("F16") or key.startswith("BF16"):
+        # No AVX512_FP16 / BF16 on this class of CPU: compute is emulated.
+        return 0.25 if features.get("avx512f") else 0.10
+    if key.startswith("F32"):
+        return 0.25
+    if key.startswith(("Q8", "IQ8")):
+        # AVX-VNNI has a native 8-bit dot product; otherwise AVX2 only.
+        return 1.0 if features.get("avx_vnni") else 0.65
+    if key.startswith(("Q4", "IQ4")):
+        # 4-bit is unpacked with AVX2 shifts; VNNI cannot consume it directly.
+        return 0.85 if features.get("avx2") else 0.45
+    if key.startswith(("Q5", "Q6", "IQ5", "IQ6")):
+        return 0.75 if features.get("avx2") else 0.40
+    return 0.5
+
+
+def isa_quant_advice(features: dict[str, Any]) -> str:
+    lanes32 = "8 (256 Bit)" if features.get("avx2") else "4 (128 Bit)"
+    parts = [
+        f"AVX2/FMA: {lanes32} FP32-Lanes, 16 FLOP pro FMA-Instruktion.",
+    ]
+    if features.get("avx_vnni"):
+        parts.append(
+            "AVX-VNNI: 32 INT8-Multiplikationen pro Instruktion "
+            "(≈4× FP32-Durchsatz) — INT8 ist die nativ schnellste Rechenform."
+        )
+    else:
+        parts.append("Kein AVX-VNNI: INT8-Dot-Products müssen emuliert werden.")
+    parts.append(
+        "Kein AVX-512/FP16/BF16: FP16- und BF16-Gewichte sind für die ALU "
+        "ungünstig und werden hier entsprechend abgewertet."
+    )
+    parts.append(
+        "Da die Token-Generierung speicherbandbreitenlimitiert ist, bleibt "
+        "Q4_K_M/IQ4_XS meist die beste Wahl; bei prefill-lastigen Workloads "
+        "gewinnt Q8_0 durch VNNI. KV-Cache auf q8_0 stellen."
+    )
+    return " ".join(parts)
+
+
 def evaluate(
     candidates: list[Candidate], benchmark: dict[str, Any], config: FitConfig
 ) -> list[dict[str, Any]]:
@@ -241,6 +284,7 @@ def evaluate(
     flops = float(benchmark["flops"]["flops_per_sec"])
     disk_read = float(benchmark["disk"]["read_bytes_per_sec"])
     calibration = _calibration(benchmark)
+    features = benchmark.get("features") or {}
     tg_eff = max(0.2, min(5.0, calibration.get("tg_efficiency", 1.0)))
     pp_eff = max(0.2, min(5.0, calibration.get("pp_efficiency", 1.0)))
 
@@ -261,6 +305,7 @@ def evaluate(
                 "prefill_tokens_per_sec": prefill,
                 "load_seconds": candidate.size_bytes / disk_read,
                 "headroom_bytes": available - required,
+                "simd_affinity": quant_affinity(candidate.quant, features),
             }
         )
 
@@ -287,9 +332,10 @@ def evaluate(
     quality_norm = normalized("params_b")
     for index, row in enumerate(fitting):
         row["score"] = (
-            0.40 * tg_norm[index]
-            + 0.25 * pp_norm[index]
-            + 0.35 * quality_norm[index]
+            0.36 * tg_norm[index]
+            + 0.22 * pp_norm[index]
+            + 0.32 * quality_norm[index]
+            + 0.10 * float(row.get("simd_affinity", 0.5))
         )
     for row in rows:
         if not row["fits"]:
@@ -320,6 +366,10 @@ def format_recommendations(
         f"FP32: {benchmark['flops']['flops_per_sec'] / 1e9:,.1f} GFLOP/s  ",
         f"Kontext: {config.context} Token  ",
         "KV-Cache und Laufzeit-Overhead sind in der RAM-Abschätzung enthalten.",
+        "",
+        "### SIMD-basierte Quantisierungs-Empfehlung",
+        "",
+        isa_quant_advice(benchmark.get("features") or {}),
         "",
         "| # | Modell (Quelle) | Quant | Parameter | Datei | KV | RAM nötig | Passt | tg ~ | pp ~ | Laden |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",

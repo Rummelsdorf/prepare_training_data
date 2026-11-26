@@ -5,6 +5,8 @@ from prepare_training_data.modelfit import (
     _quant_of,
     evaluate,
     format_recommendations,
+    isa_quant_advice,
+    quant_affinity,
 )
 
 BENCHMARK = {
@@ -26,6 +28,17 @@ def test_quant_of():
 def test_params_from_name_and_fallback():
     assert _params_of("Qwen3.5-9B-GGUF", "x-Q4_K_M.gguf", 5_000_000_000, "Q4_K_M") == 9.0
     assert _params_of("unknown", "x-Q4_K_M.gguf", 550_000_000, "Q4_K_M") == 1.0
+
+
+def test_quant_affinity_uses_isa():
+    features = {"avx2": True, "avx_vnni": True, "avx512f": False}
+    assert quant_affinity("Q8_0", features) == 1.0
+    assert quant_affinity("Q4_K_M", features) == 0.85
+    assert quant_affinity("F16", features) < 0.2
+    plain_avx2 = {"avx2": True, "avx_vnni": False, "avx512f": False}
+    assert quant_affinity("Q8_0", plain_avx2) < quant_affinity("Q8_0", features)
+    text = isa_quant_advice(features)
+    assert "AVX-VNNI" in text and "Q4_K_M" in text and "q8_0" in text
 
 
 def test_evaluate_ranks_fitting_models_and_marks_oversized():
@@ -51,3 +64,4 @@ def test_report_contains_best_fit_and_command():
     assert "Bester Fit" in text
     assert "llama-cli -hf a/Small:Q4_K_M" in text
     assert "KV-Cache" in text
+    assert "SIMD-basierte Quantisierungs-Empfehlung" in text
