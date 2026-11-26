@@ -5,7 +5,7 @@ PTD := $(VENV)/bin/ptd
 LLAMA_BENCH ?= /home/el/llama.cpp/build/bin/llama-bench
 LLM_MODEL ?= /home/el/models/qwen3.5-0.8b.gguf
 
-.PHONY: install test demo clean benchmark benchmark-llm model-fit
+.PHONY: install test demo clean benchmark benchmark-llm model-fit opencode-data
 
 install:
 	uv venv $(VENV) --python 3.12
@@ -35,6 +35,11 @@ model-fit:
 	  --query "Ministral GGUF" --limit 12 --top 10 --ctx 4096 \
 	  --free-ram-mb $(FREE_RAM_MB) \
 	  --json data/model-fit.json --markdown data/model-fit.md
+
+opencode-data:
+	$(PYTHON) scripts/opencode_to_data.py -o data/opencode/instruct.jsonl \
+	  --split data/opencode/splits --val-ratio 0.05 \
+	  --stats-json data/opencode/stats.json
 
 clean:
 	rm -rf data .pytest_cache

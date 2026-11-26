@@ -372,6 +372,37 @@ Wichtig für die Interpretation: `pp` (Prefill) skaliert mit Rechenleistung,
 nicht die rohe Rechenleistung der Engpass — ein kleiner, stark quantisierter
 Modelltyp (Q4_K_M/IQ4) bringt hier mehr als ein größeres FP16-Modell.
 
+## OpenCode-Sessions als Trainingsdaten
+
+`scripts/opencode_to_data.py` liest die lokale OpenCode-SQLite-Datenbank
+(`~/.local/share/opencode/opencode.db`) **read-only** und schreibt die
+Konversationen im gleichen Chat-JSONL-Format wie `ptd dataset`:
+
+```bash
+make opencode-data
+# oder direkt:
+.venv/bin/python scripts/opencode_to_data.py \
+  -o data/opencode/instruct.jsonl \
+  --split data/opencode/splits --val-ratio 0.05 \
+  --stats-json data/opencode/stats.json
+```
+
+Standardmäßig entsteht **ein Beispiel pro Nutzerfrage mit Antwort**
+(`--mode pairs`). `--mode session` erzeugt ein Beispiel pro kompletter Session,
+`--context-turns 1` nimmt den vorherigen Turn als Kontext mit auf.
+
+Reasoning-Texte und Tool-Ausgaben werden ausgelassen (flags
+`--include-reasoning`, `--include-tools`), Nachrichten unter `--min-chars`
+(Standard 40) werden verworfen. Mit `--project`, `--directory`, `--session-id`
+und `--limit` lässt sich der Umfang einschränken.
+
+**Wichtig:** Die Daten können vertrauliche Inhalte enthalten. Standardmäßig
+werden API-Keys, Bearer-Tokens, AWS-Keys, Private Keys und
+`api_key=…`/`password=…`-Zuweisungen maskiert (`--no-redact` deaktiviert das).
+Die Splits erfolgen quellenweise pro Session, damit keine Session in train
+*und* val landet. Vor einer Veröffentlichung eine zusätzliche PII-Prüfung
+durchführen.
+
 ## Tests
 
 ```bash
