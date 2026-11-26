@@ -3,6 +3,7 @@ from pathlib import Path
 from prepare_training_data.benchmark import (
     derive,
     format_report,
+    parse_cpu_flags,
     parse_dd_output,
     parse_meminfo,
 )
@@ -21,6 +22,18 @@ def test_parse_meminfo(tmp_path: Path):
     values = parse_meminfo(path)
     assert values["MemTotal"] == 16135928 * 1024
     assert values["MemAvailable"] == 1874224 * 1024
+
+
+def test_parse_cpu_flags():
+    text = (
+        "processor\t: 0\n"
+        "flags\t\t: fpu avx2 fma avx_vnni sse4_2\n"
+        "\nprocessor\t: 1\n"
+        "flags\t\t: fpu avx2 fma avx_vnni sse4_2\n"
+    )
+    flags = parse_cpu_flags(text)
+    assert "avx2" in flags and "fma" in flags and "avx_vnni" in flags
+    assert "avx512f" not in flags
 
 
 def test_parse_dd_output_english_and_german():

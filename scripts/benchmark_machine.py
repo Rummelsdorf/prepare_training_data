@@ -25,6 +25,15 @@ def main() -> int:
     parser.add_argument("--ram-max-mb", type=int, default=1024, help="Obergrenze des RAM-Messblocks")
     parser.add_argument("--disk-mb", type=int, default=256, help="Größe der Platten-Testdatei")
     parser.add_argument("--temp-dir", type=Path, default=None, help="Verzeichnis für den Plattentest")
+    parser.add_argument(
+        "--thread-scaling", type=int, nargs="*", default=[],
+        help="Threadzahlen für Skalierungsmessung, z. B. 1 2 3 4",
+    )
+    parser.add_argument("--llama-bench", type=Path, default=None, help="Pfad zu llama-bench")
+    parser.add_argument("--llama-model", type=Path, default=None, help="GGUF-Modell für llama-bench")
+    parser.add_argument("--llama-prompt", type=int, default=512, help="Prompt-Tokens für llama-bench")
+    parser.add_argument("--llama-gen", type=int, default=128, help="Generierte Tokens für llama-bench")
+    parser.add_argument("--llama-reps", type=int, default=1, help="Wiederholungen für llama-bench")
     parser.add_argument("--json", type=Path, default=None, help="Ergebnis als JSON speichern")
     parser.add_argument("--markdown", type=Path, default=None, help="Bericht als Markdown speichern")
     parser.add_argument("--quiet", action="store_true", help="Keinen Bericht auf stdout")
@@ -41,6 +50,12 @@ def main() -> int:
             ram_max_mb=args.ram_max_mb,
             disk_mb=args.disk_mb,
             temp_dir=args.temp_dir,
+            thread_counts=tuple(args.thread_scaling),
+            llama_bench=args.llama_bench,
+            llama_model=args.llama_model,
+            llama_prompt=args.llama_prompt,
+            llama_gen=args.llama_gen,
+            llama_reps=args.llama_reps,
         )
     )
     report = format_report(result)

@@ -34,6 +34,12 @@ class BenchmarkConfig:
     disk_mb: int = 256
     temp_dir: Path | None = None
     threads: int | None = None
+    thread_counts: tuple[int, ...] = ()
+    llama_bench: Path | None = None
+    llama_model: Path | None = None
+    llama_prompt: int = 512
+    llama_gen: int = 128
+    llama_reps: int = 1
 
 
 @dataclass
@@ -46,6 +52,10 @@ class BenchmarkResult:
     ram: dict[str, Any]
     disk: dict[str, Any]
     derived: dict[str, Any] = field(default_factory=dict)
+    features: dict[str, Any] = field(default_factory=dict)
+    flops: dict[str, Any] = field(default_factory=dict)
+    thread_scaling: list[dict[str, Any]] = field(default_factory=list)
+    llama: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,9 +64,13 @@ class BenchmarkResult:
             "mem_total_bytes": self.mem_total_bytes,
             "mem_available_bytes": self.mem_available_bytes,
             "cpu": self.cpu,
+            "flops": self.flops,
+            "features": self.features,
             "ram": self.ram,
             "disk": self.disk,
             "derived": self.derived,
+            "thread_scaling": self.thread_scaling,
+            "llama": self.llama,
         }
 
 
@@ -69,6 +83,42 @@ def parse_meminfo(path: str | Path = "/proc/meminfo") -> dict[str, int]:
             if match:
                 values[match.group(1)] = int(match.group(2)) * 1024
     return values
+
+
+def parse_cpu_flags(text: str) -> set[str]:
+    """Read the `flags` line of /proc/cpuinfo."""
+    for line in text.splitlines():
+        if line.lower().startswith("flags") and ":" in line:
+            return set(line.split(":", 1)[1].split())
+    return set()
+
+
+def cpu_features() -> dict[str, Any]:
+    """Instruction-set flags and cache sizes relevant for LLM inference."""
+    cpuinfo = Path("/proc/cpuinfo")
+    flags = parse_cpu_flags(cpuinfo.read_text(encoding="utf-8")) if cpuinfo.exists() else set()
+    caches: dict[str, int] = {}
+    cache_root = Path("/sys/devices/system/cpu/cpu0/cache")
+    for index in sorted(cache_root.glob("index*")):
+        try:
+            level = int((index / "level").read_text().strip())
+            kind = (index / "type").read_text().strip().lower()
+            size_text = (index / "size").read_text().strip().upper()
+            match = re.match(r"(\d+)([KMG])", size_text)
+            if not match:
+                continue
+            factor = {"K": 1, "M": 1024, "G": 1024 * 1024}[match.group(2)]
+            caches[f"l{level}_{kind}_kib"] = int(match.group(1)) * factor
+        except (OSError, ValueError):
+            continue
+    return {
+        "flags": sorted(flags),
+        "avx2": "avx2" in flags,
+        "fma": "fma" in flags,
+        "avx_vnni": "avx_vnni" in flags,
+        "avx512f": "avx512f" in flags,
+        "caches_kib": caches,
+    }
 
 
 def online_cpus() -> int:
@@ -119,8 +169,8 @@ def _compile_kernel(workdir: Path) -> Path:
     source = Path(__file__).resolve().parents[2] / "scripts" / "bench_ops.c"
     binary = workdir / "bench_ops"
     command = [
-        "gcc", "-O3", "-march=native", "-pthread",
-        "-o", str(binary), str(source),
+        "gcc", "-O3", "-march=native", "-ffast-math", "-pthread",
+        "-o", str(binary), str(source), "-lm",
     ]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0 or not binary.exists():
@@ -149,6 +199,59 @@ def _dd_command(in_path: str, out_path: str, mb: int, direct: bool, write: bool)
     elif direct:
         command.append("iflag=direct")
     return command
+
+
+def run_thread_scaling(
+    binary: Path, thread_counts: tuple[int, ...], seconds: float
+) -> list[dict[str, Any]]:
+    """Measure integer and floating-point throughput per thread count."""
+    rows: list[dict[str, Any]] = []
+    for threads in thread_counts:
+        cpu = _run_kernel(binary, "cpu", str(threads), str(seconds))
+        flops = _run_kernel(binary, "flops", str(threads), str(seconds))
+        rows.append(
+            {
+                "threads": threads,
+                "add_ops_per_sec": cpu["ops_per_sec"],
+                "flops_per_sec": flops["flops_per_sec"],
+            }
+        )
+    return rows
+
+
+def run_llama_bench(
+    binary: Path,
+    model: Path,
+    threads: int,
+    prompt: int,
+    generation: int,
+    repetitions: int,
+) -> list[dict[str, Any]]:
+    """Run llama.cpp's own benchmark: prefill and decode tokens/s on CPU."""
+    command = [
+        str(binary), "-o", "json", "-t", str(threads), "-ngl", "0",
+        "-p", str(prompt), "-n", str(generation), "-r", str(repetitions),
+        "-m", str(model),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=1800)
+    if result.returncode != 0:
+        raise RuntimeError(f"llama-bench fehlgeschlagen: {result.stderr.strip()[-500:]}")
+    data = json.loads(result.stdout)
+    rows: list[dict[str, Any]] = []
+    for item in data:
+        is_decode = item.get("n_gen", 0) > 0
+        rows.append(
+            {
+                "test": "tg" if is_decode else "pp",
+                "tokens_per_sec": item.get("avg_ts"),
+                "stddev_ts": item.get("stddev_ts"),
+                "n_prompt": item.get("n_prompt"),
+                "n_gen": item.get("n_gen"),
+                "model": item.get("model_type"),
+                "threads": item.get("n_threads"),
+            }
+        )
+    return rows
 
 
 def measure_disk(directory: Path, mb: int) -> dict[str, Any]:
@@ -196,6 +299,12 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
     try:
         binary = _compile_kernel(workdir)
         cpu = _run_kernel(binary, "cpu", str(threads), str(config.seconds))
+        flops = _run_kernel(binary, "flops", str(threads), str(config.seconds))
+        scaling = (
+            run_thread_scaling(binary, config.thread_counts, config.seconds)
+            if config.thread_counts
+            else []
+        )
         chunk = int(min(
             mem_total * config.ram_fraction,
             mem_available * 0.75,
@@ -209,6 +318,15 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
 
     disk_dir = config.temp_dir or Path("data/benchmark")
     disk = measure_disk(disk_dir, config.disk_mb)
+
+    llama_rows: list[dict[str, Any]] = []
+    if config.llama_bench and config.llama_model:
+        if not config.llama_bench.exists() or not config.llama_model.exists():
+            raise RuntimeError("llama-bench oder Modell nicht gefunden")
+        llama_rows = run_llama_bench(
+            config.llama_bench, config.llama_model, threads,
+            config.llama_prompt, config.llama_gen, config.llama_reps,
+        )
 
     derived = derive(
         float(cpu["ops_per_sec"]),
@@ -225,6 +343,10 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         ram=ram,
         disk=disk,
         derived=derived,
+        features=cpu_features(),
+        flops=flops,
+        thread_scaling=scaling,
+        llama=llama_rows,
     )
 
 
@@ -256,6 +378,23 @@ def format_report(result: BenchmarkResult) -> str:
         f"SIMD-Registerbreite: {cpu['simd_bits']} Bit (nur Information, der Test ist skalar)",
         f"- Compiler: {cpu['compiler']}, Laufzeit: {cpu['seconds']:.2f} s, "
         f"Iterationen: {cpu['ops']:,}",
+        "",
+        "## Floating-Point / SIMD (relevant für Matrizenmultiplikation)",
+        "",
+        f"- FP32-FMA-Durchsatz: {result.flops.get('flops_per_sec', 0):,.0f} FLOP/s "
+        f"({result.flops.get('flops_per_iter', 0)} FLOP pro Iteration, "
+        f"{result.flops.get('simd_bits', 0)} Bit Vektorbreite)",
+        f"- Wortbreite: {result.flops.get('word_bits', 0)} Bit; "
+        f"gemessen mit FFT-ähnlicher Akkumulation, nicht mit GEMM",
+        "",
+        "## ISA und Caches",
+        "",
+        f"- AVX2: {'ja' if result.features.get('avx2') else 'nein'}, "
+        f"FMA: {'ja' if result.features.get('fma') else 'nein'}, "
+        f"AVX-VNNI (INT8): {'ja' if result.features.get('avx_vnni') else 'nein'}, "
+        f"AVX-512: {'ja' if result.features.get('avx512f') else 'nein'}",
+        "- Caches (KiB): "
+        + (", ".join(f"{key}={value:,}" for key, value in result.features.get("caches_kib", {}).items()) or "nicht verfügbar"),
         "",
         "## RAM (extrapoliert)",
         "",
@@ -294,4 +433,47 @@ def format_report(result: BenchmarkResult) -> str:
         "Desktop-Nutzung während des Tests verfälscht die Messung.",
         "",
     ]
+
+    extra: list[str] = []
+    if result.thread_scaling:
+        extra.extend(
+            [
+                "## Thread-Scaling (CPU vs. fp32)",
+                "",
+                "| Threads | Ganzzahl Add/s | FP32 FLOP/s |",
+                "| --- | --- | --- |",
+            ]
+        )
+        for row in result.thread_scaling:
+            extra.append(
+                f"| {row['threads']} | {row['add_ops_per_sec']:,.0f} | "
+                f"{row['flops_per_sec']:,.0f} |"
+            )
+        extra.append("")
+
+    if result.llama:
+        extra.extend(
+            [
+                "## llama.cpp (CPU, echte Modellmessung)",
+                "",
+                "| Test | Prompt | Generation | Tokens/s |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for row in result.llama:
+            extra.append(
+                f"| {row['test']} | {row['n_prompt']} | {row['n_gen']} | "
+                f"{row['tokens_per_sec']:.2f} |"
+            )
+        extra.extend(
+            [
+                "",
+                "`pp` = Prefill (Prompt-Verarbeitung, rechen-/bandbreitenlimitiert), "
+                "`tg` = Token-Generierung (speicherbandbreitenlimitiert).",
+                "",
+            ]
+        )
+
+    position = lines.index("## Hinweise")
+    lines[position:position] = extra
     return "\n".join(lines)

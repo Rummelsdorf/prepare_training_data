@@ -309,6 +309,32 @@ make benchmark
 Der Bericht landet in `data/benchmark.md`, die Rohwerte in
 `data/benchmark.json` (beide unter `data/` und damit gitignored).
 
+### Zusätzliche Metriken für LLM-Inferenz auf CPU
+
+Die reine Ganzzahl-Operationszahl ist für LLMs **nicht** die entscheidende
+Größe. Für die Optimierung braucht es außerdem:
+
+| Metrik | Warum | Im Skript |
+| --- | --- | --- |
+| **FP32-FMA-FLOPS / SIMD-Breite** | Prefill ist Matrizenmultiplikation; der skalare Add-Test unterschätzt sie | `flops`-Modus, `avx2`/`fma`/`avx_vnni`-Flags |
+| **RAM-Lesebandbreite** | Token-Generierung streamt bei jedem Token alle Gewichte aus dem RAM — meist der limitierende Faktor | schon enthalten (extrapoliert) |
+| **Cache-Größen** | Ob Zwischenergebnisse in L2/L3 bleiben, entscheidet über Nachladekosten | `cpu_features()` via sysfs |
+| **Thread-Scaling** | Auf 4 E-Cores ist „mehr Threads" nicht immer schneller; Optimum empirisch finden | `--thread-scaling 1 2 4` |
+| **Echte Tokens/s (pp/tg)** | Einzige Zahl, die Quantisierung, Kernel und Speicherzugriff zusammen berücksichtigt | `--llama-bench` + `--llama-model` |
+| **Sustained vs. Burst** | Bei 3,4 GHz Turbo und 700 MHz Minimum kann Dauerlast die Werte halbieren | `--seconds` erhöhen (z. B. 30) |
+
+```bash
+make benchmark-llm   # Thread-Scaling + llama-bench (pp/tg) mit Qwen3.5-0.8B Q8_0
+# Pfade überschreibbar:
+make benchmark-llm LLAMA_BENCH=/pfad/zu/llama-bench LLM_MODEL=/pfad/zu/modell.gguf
+```
+
+Wichtig für die Interpretation: `pp` (Prefill) skaliert mit Rechenleistung,
+`tg` (Token-Generierung) mit Speicherbandbreite. Auf dieser Maschine (N100,
+4 Kerne, AVX2/FMA/AVX-VNNI, kein AVX-512, 6 MiB L3) ist die Bandbreite und
+nicht die rohe Rechenleistung der Engpass — ein kleiner, stark quantisierter
+Modelltyp (Q4_K_M/IQ4) bringt hier mehr als ein größeres FP16-Modell.
+
 ## Tests
 
 ```bash
