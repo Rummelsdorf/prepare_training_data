@@ -281,6 +281,34 @@ examples/            # Beispieldokumente
 scripts/             # optionale Helfer
 ```
 
+## Maschinen-Benchmark
+
+`scripts/benchmark_machine.py` misst CPU-Durchsatz, RAM-Bandbreite und
+Plattendurchsatz und berechnet daraus die Kennzahlen:
+
+- wie viele 64-Bit-Ganzzahl-Operationen alle Kerne ausführen, während der
+  gesamte RAM **einmal gelesen** wird,
+- wie lange es dauert, den gesamten RAM **voll zu schreiben** (extrapoliert
+  aus einem sicheren Messblock — der echte Volllauf würde andere Prozesse
+  gefährden),
+- sequenzielles Lesen/Schreiben der Platte (Direct-I/O, wenn verfügbar),
+- Bitbreite der Operationen (64-Bit-Operanden, Wortbreite, SIMD-Registerbreite).
+
+Der CPU- und RAM-Test läuft in einem kleinen C-Kernel
+(`scripts/bench_ops.c`), damit keine Python-Overheads das Ergebnis
+verfälschen. Aufruf:
+
+```bash
+make benchmark
+# oder direkt:
+.venv/bin/python scripts/benchmark_machine.py \
+  --seconds 2 --ram-max-mb 1024 --disk-mb 256 \
+  --json data/benchmark.json --markdown data/benchmark.md
+```
+
+Der Bericht landet in `data/benchmark.md`, die Rohwerte in
+`data/benchmark.json` (beide unter `data/` und damit gitignored).
+
 ## Tests
 
 ```bash

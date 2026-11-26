@@ -2,7 +2,7 @@ VENV := .venv
 PYTHON := $(VENV)/bin/python
 PTD := $(VENV)/bin/ptd
 
-.PHONY: install test demo clean
+.PHONY: install test demo clean benchmark
 
 install:
 	uv venv $(VENV) --python 3.12
@@ -14,6 +14,9 @@ test:
 demo:
 	$(PTD) build examples -o data/dataset.jsonl --lang de
 	$(PTD) stats data/dataset.jsonl
+
+benchmark:
+	$(PYTHON) scripts/benchmark_machine.py --json data/benchmark.json --markdown data/benchmark.md
 
 clean:
 	rm -rf data .pytest_cache
