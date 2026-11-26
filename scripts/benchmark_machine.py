@@ -34,6 +34,19 @@ def main() -> int:
     parser.add_argument("--llama-prompt", type=int, default=512, help="Prompt-Tokens für llama-bench")
     parser.add_argument("--llama-gen", type=int, default=128, help="Generierte Tokens für llama-bench")
     parser.add_argument("--llama-reps", type=int, default=1, help="Wiederholungen für llama-bench")
+    parser.add_argument(
+        "--recommend", action="store_true",
+        help="Hugging Face / lokale GGUFs recherchieren und besten Fit anzeigen",
+    )
+    parser.add_argument("--query", action="append", default=[], help="HF-Suchbegriff (mehrfach)")
+    parser.add_argument("--hf-limit", type=int, default=12, help="HF-Treffer pro Suchbegriff")
+    parser.add_argument("--ctx", type=int, default=4096, help="Kontext für KV-Cache-Abschätzung")
+    parser.add_argument("--top", type=int, default=10, help="Anzahl Empfehlungen")
+    parser.add_argument(
+        "--free-ram-mb", type=int, default=0,
+        help="Annahme für freien RAM bei der Modell-Empfehlung",
+    )
+    parser.add_argument("--local-dir", action="append", default=[], help="Lokales GGUF-Verzeichnis")
     parser.add_argument("--json", type=Path, default=None, help="Ergebnis als JSON speichern")
     parser.add_argument("--markdown", type=Path, default=None, help="Bericht als Markdown speichern")
     parser.add_argument("--quiet", action="store_true", help="Keinen Bericht auf stdout")
@@ -56,6 +69,13 @@ def main() -> int:
             llama_prompt=args.llama_prompt,
             llama_gen=args.llama_gen,
             llama_reps=args.llama_reps,
+            recommend_models=args.recommend,
+            hf_queries=tuple(args.query),
+            hf_limit=args.hf_limit,
+            hf_context=args.ctx,
+            hf_top=args.top,
+            hf_local_dirs=tuple(args.local_dir) if args.local_dir else ("/home/el/models",),
+            hf_free_ram_mb=args.free_ram_mb,
         )
     )
     report = format_report(result)

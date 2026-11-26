@@ -40,6 +40,13 @@ class BenchmarkConfig:
     llama_prompt: int = 512
     llama_gen: int = 128
     llama_reps: int = 1
+    recommend_models: bool = False
+    hf_queries: tuple[str, ...] = ()
+    hf_limit: int = 12
+    hf_context: int = 4096
+    hf_top: int = 10
+    hf_local_dirs: tuple[str, ...] = ("/home/el/models",)
+    hf_free_ram_mb: int = 0
 
 
 @dataclass
@@ -56,6 +63,9 @@ class BenchmarkResult:
     flops: dict[str, Any] = field(default_factory=dict)
     thread_scaling: list[dict[str, Any]] = field(default_factory=list)
     llama: list[dict[str, Any]] = field(default_factory=list)
+    calibration: dict[str, Any] = field(default_factory=dict)
+    recommendations: list[dict[str, Any]] = field(default_factory=list)
+    recommendation_report: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +81,8 @@ class BenchmarkResult:
             "derived": self.derived,
             "thread_scaling": self.thread_scaling,
             "llama": self.llama,
+            "calibration": self.calibration,
+            "recommendations": self.recommendations,
         }
 
 
@@ -320,6 +332,7 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
     disk = measure_disk(disk_dir, config.disk_mb)
 
     llama_rows: list[dict[str, Any]] = []
+    calibration: dict[str, Any] = {}
     if config.llama_bench and config.llama_model:
         if not config.llama_bench.exists() or not config.llama_model.exists():
             raise RuntimeError("llama-bench oder Modell nicht gefunden")
@@ -327,6 +340,13 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
             config.llama_bench, config.llama_model, threads,
             config.llama_prompt, config.llama_gen, config.llama_reps,
         )
+        name = config.llama_model.name
+        match = re.search(r"(\d+(?:\.\d+)?)[bB]", name)
+        calibration = {
+            "model": str(config.llama_model),
+            "model_bytes": config.llama_model.stat().st_size,
+            "params_b": float(match.group(1)) if match else 1.0,
+        }
 
     derived = derive(
         float(cpu["ops_per_sec"]),
@@ -334,7 +354,7 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         float(ram["write_bytes_per_sec"]),
         mem_total,
     )
-    return BenchmarkResult(
+    result = BenchmarkResult(
         host=os.uname().nodename,
         cpu_count=threads,
         mem_total_bytes=mem_total,
@@ -347,7 +367,22 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         flops=flops,
         thread_scaling=scaling,
         llama=llama_rows,
+        calibration=calibration,
     )
+    if config.recommend_models:
+        from .modelfit import FitConfig, recommend
+
+        fit_config = FitConfig(
+            queries=config.hf_queries,
+            context=config.hf_context,
+            top=config.hf_top,
+            local_dirs=config.hf_local_dirs,
+            available_override_bytes=config.hf_free_ram_mb * MB,
+        )
+        result.recommendations, result.recommendation_report = recommend(
+            result.to_dict(), fit_config
+        )
+    return result
 
 
 def _mib(value: float) -> str:
@@ -473,6 +508,10 @@ def format_report(result: BenchmarkResult) -> str:
                 "",
             ]
         )
+
+    if result.recommendation_report:
+        extra.extend(result.recommendation_report.splitlines())
+        extra.append("")
 
     position = lines.index("## Hinweise")
     lines[position:position] = extra

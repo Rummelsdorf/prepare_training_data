@@ -329,6 +329,43 @@ make benchmark-llm   # Thread-Scaling + llama-bench (pp/tg) mit Qwen3.5-0.8B Q8_
 make benchmark-llm LLAMA_BENCH=/pfad/zu/llama-bench LLM_MODEL=/pfad/zu/modell.gguf
 ```
 
+### Modell-Recherche (Hugging Face + lokal)
+
+`scripts/model_fit.py` durchsucht die Hugging-Face-API (`?filter=gguf`) nach
+passenden Modellen, liest die Dateigrößen der GGUF-Varianten und bewertet sie
+gegen die gemessene Maschine:
+
+- RAM-Bedarf = Modell + geschätzter KV-Cache (Kontext `--ctx`) + 512 MiB Overhead,
+- `tg` (Decode) ≈ RAM-Lesebandbreite / Modellgröße,
+- `pp` (Prefill) ≈ FP32-FLOPS / (2 × Parameter),
+- Ladezeit ≈ Modellgröße / Plattenleserate,
+- Kalibrierung mit `llama-bench`, wenn im Benchmark vorhanden.
+
+```bash
+make model-fit                         # nutzt data/benchmark-llm.json
+make model-fit FREE_RAM_MB=2915        # mit dem tatsächlich gemessenen freien RAM
+# oder direkt:
+.venv/bin/python scripts/model_fit.py \
+  --benchmark data/benchmark-llm.json \
+  --query "Qwen3.5 GGUF" --query "Gemma 3 GGUF" \
+  --limit 12 --top 10 --ctx 4096 --free-ram-mb 12000 \
+  --json data/model-fit.json --markdown data/model-fit.md
+```
+
+Der Bericht zeigt eine Gesamtrangliste, eine eigene Hugging-Face-Tabelle und
+den jeweils besten Fit inklusive `llama-cli`-Befehl. Es werden **keine Modelle
+heruntergeladen**; die Schätzungen ersetzen keine echte Messung des konkreten
+Modells.
+
+Alles in einem Schritt (Benchmark + Empfehlung):
+
+```bash
+.venv/bin/python scripts/benchmark_machine.py --recommend \
+  --query "Qwen3.5 GGUF" --query "Gemma 3 GGUF" \
+  --hf-limit 12 --free-ram-mb 12000 \
+  --json data/benchmark-fit.json --markdown data/benchmark-fit.md
+```
+
 Wichtig für die Interpretation: `pp` (Prefill) skaliert mit Rechenleistung,
 `tg` (Token-Generierung) mit Speicherbandbreite. Auf dieser Maschine (N100,
 4 Kerne, AVX2/FMA/AVX-VNNI, kein AVX-512, 6 MiB L3) ist die Bandbreite und
